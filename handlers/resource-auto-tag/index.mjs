@@ -1,14 +1,12 @@
 import { ResourceExplorer2Client, SearchCommand } from "@aws-sdk/client-resource-explorer-2";
 import { CloudTrailClient, LookupEventsCommand } from "@aws-sdk/client-cloudtrail";
 import { IAMClient, ListUserTagsCommand, ListRoleTagsCommand } from "@aws-sdk/client-iam";
-import { SSMClient, GetParametersByPathCommand } from "@aws-sdk/client-ssm";
 import { ResourceGroupsTaggingAPIClient, TagResourcesCommand } from "@aws-sdk/client-resource-groups-tagging-api";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 
 const re2Client = new ResourceExplorer2Client();
 const ctClient = new CloudTrailClient();
 const iamClient = new IAMClient();
-const ssmClient = new SSMClient();
 const rgtaClient = new ResourceGroupsTaggingAPIClient();
 const s3Client = new S3Client();
 
@@ -168,55 +166,18 @@ async function get_iam_role_tags(role_name) {
   return (result.Tags != undefined ? result.Tags : null);
 }
 
-async function get_ssm_parameter_tags(iam_user_name, role_name, user_id) {
-    var path_string = '';
-    if (iam_user_name != null) {
-        path_string = `/auto-tag/${iam_user_name}/tag`;
-    }     
-    else { 
-      if (role_name != null && user_id !=null) {
-        path_string = `/auto-tag/${role_name}/${user_id}/tag`;
-      } else {
-        path_string = '';
-      }
-    }
-    if (path_string != '') {
-      var params = { Path: path_string, Recursive: true, WithDecryption: true };
-      var command = new GetParametersByPathCommand(params); 
-      var get_parameter_response = await ssmClient.send(command);
-      if (get_parameter_response.Parameters != undefined && get_parameter_response.Parameters != null && get_parameter_response.Parameters.length > 0) {
-        var tag_list = [];
-        for (var i=0; i< get_parameter_response.Parameters.length;i++) {
-          var path_components = get_parameter_response[i]["Name"].split("/");
-          var tag_key = path_components[path_components.length-1];
-          tag_list.push({"Key": tag_key, "Value": get_parameter_response[i]["Value"]});
-        }
-        return tag_list;
-      } else {
-        return null;
-      }
-    } else {
-      return null;
-    }
-}
-
 async function generateTaggingFromCloudTrail(CTEvent) {
   var resource_tags = [];
 
   var event_fields = await cloudtrail_event_parser(JSON.parse(CTEvent.CloudTrailEvent));
 
   var iam_user_resource_tags = null;
-  var ssm_parameter_resource_tags = null;
   //Check for IAM User initiated event & get any associated resource tags
   if (event_fields["iam_user_name"] != undefined && event_fields["iam_user_name"] != null) {
     resource_tags.push( {"Key": "IAM User Name", "Value": event_fields["iam_user_name"]} );
     iam_user_resource_tags = await get_iam_user_tags(event_fields["iam_user_name"]);
     if (iam_user_resource_tags != null) {
         resource_tags = resource_tags.concat(iam_user_resource_tags);
-    }
-    ssm_parameter_resource_tags = await get_ssm_parameter_tags(event_fields["iam_user_name"], null, null);
-    if (ssm_parameter_resource_tags != null) {
-      resource_tags = resource_tags.concat(ssm_parameter_resource_tags);
     }
   }
 
@@ -232,19 +193,15 @@ async function generateTaggingFromCloudTrail(CTEvent) {
   if (event_fields["role_name"] != undefined && event_fields["role_name"] != null) {
     resource_tags.push({"Key": "IAM Role Name", "Value": event_fields["role_name"]});
     var iam_role_resource_tags = await get_iam_role_tags(event_fields["role_name"]);
+    if (iam_role_resource_tags != null) {
+      resource_tags = resource_tags.concat(iam_role_resource_tags);
+    }
 
     if (iam_user_resource_tags != null) {
         resource_tags = resource_tags.concat(iam_user_resource_tags);
     }
     if (event_fields["user_id"] != null && event_fields["user_id"] != undefined) {
       resource_tags.push({"Key": "Created by", "Value": event_fields["user_id"]});
-
-      ssm_parameter_resource_tags = await get_ssm_parameter_tags(
-          null, event_fields["role_name"], event_fields["user_id"]
-      );
-      if (ssm_parameter_resource_tags != null) {
-          resource_tags = resource_tags.concat(ssm_parameter_resource_tags);
-      }
     }
   }
   resource_tags.push({"Key": TAG_KEY, "Value": TAG_VALUE});
