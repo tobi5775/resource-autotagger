@@ -102,6 +102,30 @@ exports.handler = async (event) => {
               "CTEventSource": "glue.amazonaws.com",
               "REResourceType": "glue:crawler",
               "Global": false
+            },
+            {
+              "CTEventName": "CreateCustomModel",
+              "CTEventSource": "bedrock.amazonaws.com",
+              "REResourceType": "bedrock:custom-model",
+              "Global": false
+            },
+            {
+              "CTEventName": "CreateModelCustomizationJob",
+              "CTEventSource": "bedrock.amazonaws.com",
+              "REResourceType": "bedrock:model-customization-job",
+              "Global": false
+            },
+            {
+              "CTEventName": "CreateProvisionedModelThroughput",
+              "CTEventSource": "bedrock.amazonaws.com",
+              "REResourceType": "bedrock:provisioned-model-throughput",
+              "Global": false
+            },
+            {
+              "CTEventName": "CreateCollection",
+              "CTEventSource": "aoss.amazonaws.com",
+              "REResourceType": "aoss:collection",
+              "Global": false
             }
           ]
         }

@@ -3,12 +3,16 @@ import { CloudTrailClient, LookupEventsCommand } from "@aws-sdk/client-cloudtrai
 import { IAMClient, ListUserTagsCommand, ListRoleTagsCommand } from "@aws-sdk/client-iam";
 import { ResourceGroupsTaggingAPIClient, TagResourcesCommand } from "@aws-sdk/client-resource-groups-tagging-api";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { BedrockClient, TagResourceCommand as BedrockTagResourceCommand, ListTagsForResourceCommand } from "@aws-sdk/client-bedrock";
+import { OpenSearchServerlessClient, TagResourceCommand as OpenSearchServerlessTagResourceCommand, ListTagsForResourceCommand as OpenSearchServerlessListTagsForResourceCommand } from "@aws-sdk/client-opensearch-serverless";
 
 const re2Client = new ResourceExplorer2Client();
 const ctClient = new CloudTrailClient();
 const iamClient = new IAMClient();
 const rgtaClient = new ResourceGroupsTaggingAPIClient();
 const s3Client = new S3Client();
+const bedrockClient = new BedrockClient();
+const opensearchServerlessClient = new OpenSearchServerlessClient();
 
 const TAG_KEY = 'blog';
 const TAG_VALUE = 'ResourceAutoTagEnhanced';
@@ -210,17 +214,71 @@ async function generateTaggingFromCloudTrail(CTEvent) {
 }
 
 async function tagResourceByARN(ArnString, tagList) {
-  var arnList = [ArnString];
-  for (var i=0; i<tagList.length; i++) {
-    var params = {  
-      ResourceARNList : arnList,
-      Tags: {
-        [tagList[i].Key] : tagList[i].Value
-      }
-    };  
-    var command = new TagResourcesCommand(params);  
-      
-    await rgtaClient.send(command);
+  // Check if this is a Bedrock resource
+  if (ArnString.includes(':bedrock:')) {
+    await tagBedrockResource(ArnString, tagList);
+  } else if (ArnString.includes(':aoss:')) {
+    // Handle OpenSearch Serverless resources
+    await tagOpenSearchServerlessResource(ArnString, tagList);
+  } else {
+    // Use the generic Resource Groups Tagging API for other resources
+    var arnList = [ArnString];
+    for (var i=0; i<tagList.length; i++) {
+      var params = {  
+        ResourceARNList : arnList,
+        Tags: {
+          [tagList[i].Key] : tagList[i].Value
+        }
+      };  
+      var command = new TagResourcesCommand(params);  
+        
+      await rgtaClient.send(command);
+    }
+  }
+}
+
+async function tagBedrockResource(ArnString, tagList) {
+  try {
+    // Convert tag list to the format expected by Bedrock
+    var tags = {};
+    for (var i = 0; i < tagList.length; i++) {
+      tags[tagList[i].Key] = tagList[i].Value;
+    }
+    
+    var params = {
+      resourceARN: ArnString,
+      tags: tags
+    };
+    
+    var command = new BedrockTagResourceCommand(params);
+    await bedrockClient.send(command);
+    console.log(`Successfully tagged Bedrock resource: ${ArnString}`);
+  } catch (error) {
+    console.error(`Error tagging Bedrock resource ${ArnString}:`, error);
+  }
+}
+
+async function tagOpenSearchServerlessResource(ArnString, tagList) {
+  try {
+    // Convert tag list to the format expected by OpenSearch Serverless
+    var tags = [];
+    for (var i = 0; i < tagList.length; i++) {
+      tags.push({
+        key: tagList[i].Key,
+        value: tagList[i].Value
+      });
+    }
+    
+    var params = {
+      resourceArn: ArnString,
+      tags: tags
+    };
+    
+    var command = new OpenSearchServerlessTagResourceCommand(params);
+    await opensearchServerlessClient.send(command);
+    console.log(`Successfully tagged OpenSearch Serverless resource: ${ArnString}`);
+  } catch (error) {
+    console.error(`Error tagging OpenSearch Serverless resource ${ArnString}:`, error);
   }
 }
 
